@@ -133,29 +133,29 @@ makedocs(
 
 The `makedocs` argument `sitename` will be used for the document title.
 The `authors` argument should also be specified and will be used for the document metadata.
-A version number can be specified with the `version` option to `Typst`, which will be 
+A version number can be specified with the `version` option to `Typst`, which will be
 printed in the document and also appended to the output PDF file name.
 
 # Keyword arguments
 
 - **`platform`** sets the platform where the Typst file is compiled. Available options:
-    - `"typst"` (default): Uses Typst_jll, a Julia binary wrapper that automatically 
+    - `"typst"` (default): Uses Typst_jll, a Julia binary wrapper that automatically
       provides the Typst compiler across all platforms.
-    - `"native"`: Uses the system-installed `typst` executable found in `PATH`, or 
+    - `"native"`: Uses the system-installed `typst` executable found in `PATH`, or
       a custom path specified via the `typst` keyword argument.
-    - `"none"`: Skips compilation and only generates the `.typ` source file in the 
+    - `"none"`: Skips compilation and only generates the `.typ` source file in the
       build directory.
 
 - **`version`** specifies the version number printed on the title page of the manual.
-  Defaults to the value in the `TRAVIS_TAG` environment variable (although this behaviour 
+  Defaults to the value in the `TRAVIS_TAG` environment variable (although this behaviour
   is considered deprecated), or to an empty string if `TRAVIS_TAG` is unset.
 
-- **`typst`** allows specifying a custom path to a `typst` executable. Only used when 
+- **`typst`** allows specifying a custom path to a `typst` executable. Only used when
   `platform="native"`. Can be either a `String` path or a `Cmd` object.
 
 - **`optimize_pdf`** enables automatic PDF optimization using pdfcpu after compilation.
-  Defaults to `true`. When enabled, reduces PDF file size by 60-85% by compressing 
-  uncompressed streams and optimizing PDF structure. Set to `false` to skip optimization 
+  Defaults to `true`. When enabled, reduces PDF file size by 60-85% by compressing
+  uncompressed streams and optimizing PDF structure. Set to `false` to skip optimization
   (e.g., for faster builds during development).
 
 - **`use_system_fonts`** controls whether to allow Typst to use system fonts.
@@ -172,10 +172,11 @@ struct Typst <: Documenter.Writer
     optimize_pdf::Bool
     use_system_fonts::Bool
     font_paths::Vector{String}
-    function Typst(; platform = "typst", version = get(ENV, "TRAVIS_TAG", ""), typst = nothing, optimize_pdf = true, use_system_fonts = true, font_paths = String[])
+    date::Union{String, Nothing}
+    function Typst(; platform = "typst", version = get(ENV, "TRAVIS_TAG", ""), typst = nothing, optimize_pdf = true, use_system_fonts = true, font_paths = String[], date = nothing)
         platform ∈ ("native", "typst", "none") ||
             throw(ArgumentError("unknown platform: $platform"))
-        return new(platform, string(version), typst, optimize_pdf, use_system_fonts, font_paths)
+        return new(platform, string(version), typst, optimize_pdf, use_system_fonts, font_paths, date)
     end
 end
 
@@ -328,32 +329,12 @@ function _format_selector_impl(fmt::Typst, doc::Documenter.Document)
 end
 
 # ============================================================================
-# Runtime initialization - override Documenter methods
+# Documenter method registration
 # ============================================================================
-
-"""
-    __init__()
-
-Initialize the TypstWriter module at runtime.
-
-This function overrides Documenter's methods to support .typ file handling and
-Typst format selection. Method overriding is done at runtime to allow precompilation
-of the rest of the module.
-"""
-function __init__()
-    # Override SetupBuildDirectory to handle .typ files in addition to .md files
-    @eval Documenter.Selectors.runner(
-        ::Type{Documenter.Builder.SetupBuildDirectory},
-        doc::Documenter.Document
-    ) = TypstWriter._setup_build_directory_impl(doc)
-
-    # Override FormatSelector to enable Typst format
-    return @eval Documenter.Selectors.runner(
-        ::Type{Documenter.FormatSelector},
-        fmt::TypstWriter.Typst,
-        doc::Documenter.Document
-    ) = TypstWriter._format_selector_impl(fmt, doc)
-end
+#
+# Note: The actual @eval method definitions are done in DocumenterTypst.__init__()
+# to avoid precompilation issues with package extensions. This module only exports
+# the implementation functions that are called by those methods.
 
 # ============================================================================
 # Rendering state and context
@@ -1008,10 +989,11 @@ function writeheader(io::IO, doc::Documenter.Document, settings::Typst)
     $(custom_content)
 
     // Useful variables
+    // Use user-provided date or generate current date
 
     #show: doc => documenter(
         title: [$(doc.user.sitename)],
-        date: [$(Dates.format(Dates.now(), "u d, Y"))],
+        date: [$(isnothing(settings.date) ? Dates.format(Dates.now(), "u d, Y") : settings.date)],
         version: [$(settings.version)],
         authors: [$(doc.user.authors)],
         julia-version: [$(VERSION)],
